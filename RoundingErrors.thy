@@ -456,14 +456,14 @@ lemma rel_err_prop_mul:
 lemma rel_err_prop_div:
   assumes "exact_eval i lhs e1" and "exact_eval i rhs e2"
     and "rel_err p i lhs r1" and "rel_err p i rhs r2"
-    and "e1 / e2 \<noteq> 0" and "e2 \<noteq> 0" and "e2 * (1 + r2) \<noteq> 0"
+    and "e1 / e2 \<noteq> 0" and "e2 * (1 + r2) \<noteq> 0"
   shows "rel_err p i (Div lhs rhs) ((r1 - r2) / (1 + r2))"
-  using rel_err_prop_div_eqn rel_err_prop_div_template assms by metis
+  using rel_err_prop_div_eqn rel_err_prop_div_template assms divide_eq_0_iff by metis
 
 lemma rel_err_prop_neg:
-  assumes "exact_eval i ex e" and "rel_err p i ex a"
+  assumes "exact_eval i ex e" and "rel_err p i ex r"
     and "-e \<noteq> 0"
-  shows "rel_err p i (Neg ex) a"
+  shows "rel_err p i (Neg ex) r"
   using rel_err_prop_neg_eqn rel_err_prop_neg_template assms by metis
 
 lemma rel_err_prop_rnd:
@@ -810,8 +810,8 @@ fun RU0_ok :: "(nat \<Rightarrow> real set) \<Rightarrow> 's Expr \<Rightarrow> 
 "RU0_ok I (Add lhs rhs) \<longleftrightarrow> 0 \<notin> E I (Add lhs rhs) \<and> 0 \<notin> E I lhs \<and> 0 \<notin> E I rhs" |
 "RU0_ok I (Mul lhs rhs) \<longleftrightarrow> 0 \<notin> E I (Mul lhs rhs) \<and> 0 \<notin> E I lhs \<and> 0 \<notin> E I rhs" |
 "RU0_ok I (Div lhs rhs) \<longleftrightarrow> 0 \<notin> E I (Div lhs rhs) \<and> 0 \<notin> E I lhs \<and> 0 \<notin> E I rhs" |
-"RU0_ok I (Neg ex) \<longleftrightarrow> 0 \<notin> E I ex" |
-"RU0_ok I (Rnd ex s) \<longleftrightarrow> 0 \<notin> E I ex" |
+"RU0_ok I (Neg ex) \<longleftrightarrow> 0 \<notin> E I (Neg ex) \<and> 0 \<notin> E I ex" |
+"RU0_ok I (Rnd ex s) \<longleftrightarrow> 0 \<notin> E I (Rnd ex s) \<and> 0 \<notin> E I ex" |
 "RU0_ok I (Const c) \<longleftrightarrow> c \<noteq> 0" |
 "RU0_ok I (Var x) \<longleftrightarrow> 0 \<notin> I x"
 
@@ -834,12 +834,17 @@ and RU0 :: "(real set \<Rightarrow> 's \<Rightarrow> real set) \<Rightarrow> (re
 "RU0 P S I (Mul lhs rhs) = RU P S I lhs +\<^sub>I RU P S I rhs +\<^sub>I RU P S I lhs *\<^sub>I RU P S I rhs" |
 "RU0 P S I (Div lhs rhs) = (RU P S I lhs -\<^sub>I RU P S I rhs) \<div>\<^sub>I ({1} +\<^sub>I RU P S I rhs)" |
 "RU0 P S I (Neg ex) = RU P S I ex" |
-"RU0 P S I (Rnd ex s) = RU P S I ex +\<^sub>I P (E I ex *\<^sub>I ({1} +\<^sub>I RU P S I ex)) s" |
+"RU0 P S I (Rnd ex s) = RU P S I ex +\<^sub>I S (E I ex *\<^sub>I ({1} +\<^sub>I RU P S I ex)) s" |
 "RU0 P S I (Const c) = {0}" |
 "RU0 P S I (Var x) = {0}"
 
 lemma ia_intersect_inc [dest]: "x \<in> X \<Longrightarrow> x \<in> Y \<Longrightarrow> x \<in> ia_intersect X Y"
   unfolding ia_intersect_def by (simp add: hull_inc)
+
+lemma RU0_ok_not_0 [dest]: "RU0_ok I ex \<Longrightarrow> 0 \<notin> E I ex"
+  by (induction ex) auto
+
+thm AU_RU_AU0_RU0.induct
 
 theorem AU_RU_correct:
   assumes "in_box i I" and "is_perturbation_model p P" and "is_rel_perturbation_model p S"
@@ -850,68 +855,189 @@ theorem AU_RU_correct:
   using assms
 proof (induction P S I ex and P S I ex and P S I ex and P S I ex rule: AU_RU_AU0_RU0.induct)
   case (1 P S I ex)
-  from this obtain e where e_def: "exact_eval i ex e" by blast
   show ?case
   proof (cases "RU0_ok I ex")
     case True
     hence a_in: "a \<in> AU0 P S I ex" using 1 by blast
-    have E_not_0: "0 \<notin> E I ex" sorry
     obtain e where e_def: "exact_eval i ex e" using 1 by blast
-    have e_neq_0: "e \<noteq> 0" using e_def E_correct E_not_0 1 by metis
+    have "0 \<notin> E I ex" using True by auto
+    hence e_neq_0: "e \<noteq> 0" using e_def E_correct 1 by metis
     obtain r where r_def: "rel_err p i ex r" using e_neq_0 e_def 1 by blast
     have r_in: "r \<in> RU0 P S I ex" using r_def 1 True by simp 
     hence "a = r * e" using add_from_rel_err e_def r_def add_err_unique 1 by metis
     hence "a \<in> RU0 P S I ex *\<^sub>I E I ex" using r_in e_def 1 E_correct ia_mul_inc by metis
-    thus ?thesis using a_in ia_intersect_inc by simp
+    thus "a \<in> AU P S I ex" using a_in ia_intersect_inc by simp
   next
     case False
-    thus ?thesis using 1 by simp
+    thus "a \<in> AU P S I ex" using 1 by simp
   qed
 next
   case (2 P S I ex)
-  then show ?case sorry
+  obtain e where e_def: "exact_eval i ex e" using 2 by blast
+  hence e_neq_0: "e \<noteq> 0" using 2 by blast
+  obtain a where a_def: "add_err p i ex a" using e_def 2 by blast
+  have a_in: "a \<in> AU0 P S I ex" using a_def 2 by (cases "RU0_ok I ex") auto 
+  have "r = a / e" using e_def a_def e_neq_0 rel_err_unique rel_from_add_err 2 by metis
+  hence r_ia_div: "r \<in> AU0 P S I ex \<div>\<^sub>I E I ex"
+    using a_in e_def E_correct ia_div_inc e_neq_0 2 by metis
+  show ?case
+  proof (cases "RU0_ok I ex")
+    case True
+    hence r_in: "r \<in> RU0 P S I ex" using 2 by blast
+    thus "r \<in> RU P S I ex" using r_in r_ia_div ia_intersect_inc by simp
+  next
+    case False
+    thus "r \<in> RU P S I ex" using 2 r_ia_div by simp
+  qed
 next
   case (3 P S I lhs rhs)
-  then show ?case sorry
+  from this obtain a1 a2 where
+    a1_def: "add_err p i lhs a1" and a1_AU: "a1 \<in> AU P S I lhs" and
+    a2_def: "add_err p i rhs a2" and a2_AU: "a2 \<in> AU P S I rhs" by auto
+  hence "add_err p i (Add lhs rhs) (a1 + a2)" using add_err_prop_add by metis
+  moreover have "a1 + a2 \<in> AU0 P S I (Add lhs rhs)" using a1_AU a2_AU by simp
+  ultimately show ?case using 3 add_err_unique by metis
 next
   case (4 P S I lhs rhs)
-  then show ?case sorry
+  from this obtain a1 a2 where
+    a1_def: "add_err p i lhs a1" and a1_AU: "a1 \<in> AU P S I lhs" and
+    a2_def: "add_err p i rhs a2" and a2_AU: "a2 \<in> AU P S I rhs" by auto
+  from this obtain e1 e2 where
+    e1_def: "exact_eval i lhs e1" and
+    e2_def: "exact_eval i rhs e2" by auto
+  have e1_E: "e1 \<in> E I lhs" using E_correct e1_def "4.prems" by blast
+  have e2_E: "e2 \<in> E I rhs" using E_correct e2_def "4.prems" by blast
+  have "add_err p i (Mul lhs rhs) (e1*a2 + a1*e2 + a1*a2)"
+    using add_err_prop_mul e1_def e2_def a1_def a2_def by metis
+  moreover have "e1*a2 + a1*e2 + a1*a2 \<in> AU0 P S I (Mul lhs rhs)"
+    using e1_def e2_def a1_def a2_def a1_AU a2_AU e1_E e2_E by simp
+  ultimately show ?case using 4 add_err_unique by metis
 next
   case (5 P S I lhs rhs)
-  then show ?case sorry
+  from this obtain a1 a2 where
+    a1_def: "add_err p i lhs a1" and a1_AU: "a1 \<in> AU P S I lhs" and
+    a2_def: "add_err p i rhs a2" and a2_AU: "a2 \<in> AU P S I rhs" by auto
+  from this obtain e1 e2 where
+    e1_def: "exact_eval i lhs e1" and
+    e2_def: "exact_eval i rhs e2" by auto
+  have e1_E: "e1 \<in> E I lhs" using E_correct e1_def "5.prems" by auto
+  have e2_E: "e2 \<in> E I rhs" using E_correct e2_def "5.prems" by auto
+  have e2_neq_0: "e2 \<noteq> 0" using "5.prems" e2_def by blast
+  have f2_neq_0: "e2 + a2 \<noteq> 0" using "5.prems" a2_def e2_def exact_eval_unique by fastforce
+  have "add_err p i (Div lhs rhs) ((a1*e2 - e1*a2) / (e2 * (e2 + a2)))"
+    using add_err_prop_div e1_def e2_def a1_def a2_def e2_neq_0 f2_neq_0 by metis
+  moreover have "(a1*e2 - e1*a2) / (e2 * (e2 + a2)) \<in> AU0 P S I (Div lhs rhs)"
+    using e1_def e2_def a1_def a2_def a1_AU a2_AU e1_E e2_E e2_neq_0 f2_neq_0 by simp
+  ultimately show ?case using 5 add_err_unique by metis
 next
   case (6 P S I ex)
-  then show ?case sorry
+  from this obtain a1 where
+    a1_def: "add_err p i ex a1" and a1_AU: "a1 \<in> AU P S I ex" by blast
+  have "add_err p i (Neg ex) (-a1)" using add_err_prop_neg a1_def by metis
+  moreover have "-a1 \<in> AU0 P S I (Neg ex)" using a1_AU by simp
+  ultimately show ?case using 6 add_err_unique by metis
 next
   case (7 P S I ex s)
-  then show ?case sorry
+  from this obtain a1 where
+    a1_def: "add_err p i ex a1" and a1_AU: "a1 \<in> AU P S I ex" by blast
+  from this obtain e1 where
+    e1_def: "exact_eval i ex e1" by blast
+  have e1_E: "e1 \<in> E I ex" using E_correct e1_def "7.prems" by blast
+  have "add_err p i (Rnd ex s) (a1 + p (e1 + a1) s)"
+    using add_err_prop_rnd e1_def a1_def by metis
+  moreover have "a1 + p (e1 + a1) s \<in> AU0 P S I (Rnd ex s)"
+    using a1_AU e1_E "7.prems" unfolding is_perturbation_model_def by simp
+  ultimately show ?case using 7 add_err_unique by metis
 next
   case (8 P S I c)
-  then show ?case sorry
+  then show ?case by auto
 next
   case (9 P S I x)
-  then show ?case sorry
+  then show ?case by auto
 next
   case (10 P S I lhs rhs)
-  then show ?case sorry
+  obtain r1 r2 where
+    r1_def: "rel_err p i lhs r1" and r1_RU: "r1 \<in> RU P S I lhs" and
+    r2_def: "rel_err p i rhs r2" and r2_RU: "r2 \<in> RU P S I rhs"
+    using 10 sorry
+  obtain e1 e2 where
+    e1_def: "exact_eval i lhs e1" and
+    e2_def: "exact_eval i rhs e2"
+    using r1_def r2_def by auto
+  have e1_E: "e1 \<in> E I lhs" using E_correct e1_def "10.prems" by auto
+  have e2_E: "e2 \<in> E I rhs" using E_correct e2_def "10.prems" by auto
+  have res_neq_0: "e1 + e2 \<noteq> 0" using "10.prems" e1_def e2_def by blast
+  have "rel_err p i (Add lhs rhs) ((e1 / (e1 + e2)) * r1 + (e2 / (e1 + e2)) * r2)"
+    using rel_err_prop_add e1_def e2_def r1_def r2_def res_neq_0 by metis
+  moreover have "(e1 / (e1 + e2)) * r1 + (e2 / (e1 + e2)) * r2 \<in> RU0 P S I (Add lhs rhs)"
+    using r1_RU r2_RU e1_E e2_E res_neq_0 by (simp del: times_divide_eq_left)
+  ultimately show ?case using 10 rel_err_unique by metis
 next
   case (11 P S I lhs rhs)
-  then show ?case sorry
+  obtain r1 r2 where
+    r1_def: "rel_err p i lhs r1" and r1_RU: "r1 \<in> RU P S I lhs" and
+    r2_def: "rel_err p i rhs r2" and r2_RU: "r2 \<in> RU P S I rhs"
+    using 11 by sorry
+  obtain e1 e2 where
+    e1_def: "exact_eval i lhs e1" and
+    e2_def: "exact_eval i rhs e2"
+    using r1_def r2_def by auto
+  have res_neq_0: "e1 * e2 \<noteq> 0" using "11.prems" e1_def e2_def by blast
+  have "rel_err p i (Mul lhs rhs) (r1 + r2 + r1*r2)"
+    using rel_err_prop_mul e1_def e2_def r1_def r2_def res_neq_0 by metis
+  moreover have "r1 + r2 + r1*r2 \<in> RU0 P S I (Mul lhs rhs)"
+    using r1_RU r2_RU by simp
+  ultimately show ?case using 11 rel_err_unique by metis
 next
   case (12 P S I lhs rhs)
-  then show ?case sorry
+  obtain r1 r2 where
+    r1_def: "rel_err p i lhs r1" and r1_RU: "r1 \<in> RU P S I lhs" and
+    r2_def: "rel_err p i rhs r2" and r2_RU: "r2 \<in> RU P S I rhs"
+    using 12 by sorry
+  obtain e1 e2 where
+    e1_def: "exact_eval i lhs e1" and
+    e2_def: "exact_eval i rhs e2"
+    using r1_def r2_def by auto
+  have res_neq_0: "e1 / e2 \<noteq> 0" using "12.prems" e1_def e2_def by blast
+  have e2_neq_0: "e2 \<noteq> 0" using e2_def "12.prems" by blast
+  have f2_neq_0: "e2*(1 + r2) \<noteq> 0" using r2_def e2_def "12.prems" by blast
+  have r2_neq_m1: "r2 \<noteq> -1" using e2_neq_0 f2_neq_0 by simp
+  have "rel_err p i (Div lhs rhs) ((r1 - r2) / (1 + r2))"
+    using rel_err_prop_div e1_def e2_def r1_def r2_def res_neq_0 e2_neq_0 f2_neq_0 by metis
+  moreover have "(r1 - r2) / (1 + r2) \<in> RU0 P S I (Div lhs rhs)"
+    using r1_RU r2_RU r2_neq_m1 by simp
+  ultimately show ?case using 12 rel_err_unique by metis
 next
   case (13 P S I ex)
-  then show ?case sorry
+  obtain r1 where
+    r1_def: "rel_err p i ex r1" and r1_RU: "r1 \<in> RU P S I ex"
+    using 13 by force
+  obtain e1 where
+    e1_def: "exact_eval i ex e1"
+    using r1_def by blast
+  hence "-e1 \<noteq> 0" using "13.prems" by auto
+  hence "rel_err p i (Neg ex) r1" using rel_err_prop_neg e1_def r1_def by metis
+  moreover have "r1 \<in> RU0 P S I (Neg ex)" using r1_RU by simp
+  ultimately show ?case using 13 rel_err_unique by metis
 next
   case (14 P S I ex s)
-  then show ?case sorry
+  from this obtain r1 where
+    r1_def: "rel_err p i ex r1" and r1_RU: "r1 \<in> RU P S I ex" by auto
+  from this obtain e1 where
+    e1_def: "exact_eval i ex e1" by blast
+  have e1_E: "e1 \<in> E I ex" using E_correct e1_def "14.prems" by blast
+  have e1_neq_0: "e1 \<noteq> 0" using "14.prems" e1_def by auto
+  have "rel_err p i (Rnd ex s) (r1 + p (e1 * (1 + r1)) s / e1)"
+    using rel_err_prop_rnd e1_def r1_def e1_neq_0 by metis
+  moreover have "r1 + p (e1 * (1 + r1)) s / e1 \<in> RU0 P S I (Rnd ex s)"
+    using r1_RU e1_E 14 e1_neq_0 unfolding is_rel_perturbation_model_def by simp
+  ultimately show ?case using 14 rel_err_unique by metis
 next
   case (15 P S I c)
-  then show ?case sorry
+  then show ?case by auto
 next
   case (16 P S I x)
-  then show ?case sorry
+  then show ?case by auto
 qed
 
 
